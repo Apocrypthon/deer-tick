@@ -4,9 +4,12 @@ from typing import Any, Self
 
 import yaml
 from dotenv import load_dotenv
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, PrivateAttr
 
-from src.config.checkpointer_config import CheckpointerConfig, load_checkpointer_config_from_dict
+from src.config.checkpointer_config import (
+    CheckpointerConfig,
+    load_checkpointer_config_from_dict,
+)
 from src.config.extensions_config import ExtensionsConfig
 from src.config.memory_config import load_memory_config_from_dict
 from src.config.model_config import ModelConfig
@@ -23,14 +26,29 @@ load_dotenv()
 class AppConfig(BaseModel):
     """Config for the DeerFlow application"""
 
-    models: list[ModelConfig] = Field(default_factory=list, description="Available models")
+    models: list[ModelConfig] = Field(
+        default_factory=list, description="Available models"
+    )
     sandbox: SandboxConfig = Field(description="Sandbox configuration")
     tools: list[ToolConfig] = Field(default_factory=list, description="Available tools")
-    tool_groups: list[ToolGroupConfig] = Field(default_factory=list, description="Available tool groups")
-    skills: SkillsConfig = Field(default_factory=SkillsConfig, description="Skills configuration")
-    extensions: ExtensionsConfig = Field(default_factory=ExtensionsConfig, description="Extensions configuration (MCP servers and skills state)")
+    tool_groups: list[ToolGroupConfig] = Field(
+        default_factory=list, description="Available tool groups"
+    )
+    skills: SkillsConfig = Field(
+        default_factory=SkillsConfig, description="Skills configuration"
+    )
+    extensions: ExtensionsConfig = Field(
+        default_factory=ExtensionsConfig,
+        description="Extensions configuration (MCP servers and skills state)",
+    )
     model_config = ConfigDict(extra="allow", frozen=False)
-    checkpointer: CheckpointerConfig | None = Field(default=None, description="Checkpointer configuration")
+    checkpointer: CheckpointerConfig | None = Field(
+        default=None, description="Checkpointer configuration"
+    )
+
+    _models_by_name: dict[str, ModelConfig] = PrivateAttr(default_factory=dict)
+    _tools_by_name: dict[str, ToolConfig] = PrivateAttr(default_factory=dict)
+    _tool_groups_by_name: dict[str, ToolGroupConfig] = PrivateAttr(default_factory=dict)
 
     @classmethod
     def resolve_config_path(cls, config_path: str | None = None) -> Path:
@@ -44,12 +62,16 @@ class AppConfig(BaseModel):
         if config_path:
             path = Path(config_path)
             if not Path.exists(path):
-                raise FileNotFoundError(f"Config file specified by param `config_path` not found at {path}")
+                raise FileNotFoundError(
+                    f"Config file specified by param `config_path` not found at {path}"
+                )
             return path
         elif os.getenv("DEER_FLOW_CONFIG_PATH"):
             path = Path(os.getenv("DEER_FLOW_CONFIG_PATH"))
             if not Path.exists(path):
-                raise FileNotFoundError(f"Config file specified by environment variable `DEER_FLOW_CONFIG_PATH` not found at {path}")
+                raise FileNotFoundError(
+                    f"Config file specified by environment variable `DEER_FLOW_CONFIG_PATH` not found at {path}"
+                )
             return path
         else:
             # Check if the config.yaml is in the current directory
@@ -58,7 +80,9 @@ class AppConfig(BaseModel):
                 # Check if the config.yaml is in the parent directory of CWD
                 path = Path(os.getcwd()).parent / "config.yaml"
                 if not path.exists():
-                    raise FileNotFoundError("`config.yaml` file not found at the current directory nor its parent directory")
+                    raise FileNotFoundError(
+                        "`config.yaml` file not found at the current directory nor its parent directory"
+                    )
             return path
 
     @classmethod
@@ -121,7 +145,9 @@ class AppConfig(BaseModel):
             if config.startswith("$"):
                 env_value = os.getenv(config[1:])
                 if env_value is None:
-                    raise ValueError(f"Environment variable {config[1:]} not found for config value {config}")
+                    raise ValueError(
+                        f"Environment variable {config[1:]} not found for config value {config}"
+                    )
                 return env_value
             return config
         elif isinstance(config, dict):
@@ -139,7 +165,9 @@ class AppConfig(BaseModel):
         Returns:
             The model config if found, otherwise None.
         """
-        return next((model for model in self.models if model.name == name), None)
+        if len(self._models_by_name) != len(self.models):
+            self._models_by_name = {model.name: model for model in self.models}
+        return self._models_by_name.get(name)
 
     def get_tool_config(self, name: str) -> ToolConfig | None:
         """Get the tool config by name.
@@ -150,7 +178,9 @@ class AppConfig(BaseModel):
         Returns:
             The tool config if found, otherwise None.
         """
-        return next((tool for tool in self.tools if tool.name == name), None)
+        if len(self._tools_by_name) != len(self.tools):
+            self._tools_by_name = {tool.name: tool for tool in self.tools}
+        return self._tools_by_name.get(name)
 
     def get_tool_group_config(self, name: str) -> ToolGroupConfig | None:
         """Get the tool group config by name.
@@ -161,7 +191,11 @@ class AppConfig(BaseModel):
         Returns:
             The tool group config if found, otherwise None.
         """
-        return next((group for group in self.tool_groups if group.name == name), None)
+        if len(self._tool_groups_by_name) != len(self.tool_groups):
+            self._tool_groups_by_name = {
+                group.name: group for group in self.tool_groups
+            }
+        return self._tool_groups_by_name.get(name)
 
 
 _app_config: AppConfig | None = None
