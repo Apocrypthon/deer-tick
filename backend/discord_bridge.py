@@ -111,7 +111,7 @@ async def main() -> None:
                 _ngrok.kill()
             except Exception:
                 pass
-            import time; time.sleep(1)
+            await asyncio.sleep(1)
             tunnel = _ngrok.connect(
                 addr=8080,
                 proto="http",
