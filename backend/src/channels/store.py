@@ -50,7 +50,9 @@ class ChannelStore:
             try:
                 return json.loads(self._path.read_text(encoding="utf-8"))
             except (json.JSONDecodeError, OSError):
-                logger.warning("Corrupt channel store at %s, starting fresh", self._path)
+                logger.warning(
+                    "Corrupt channel store at %s, starting fresh", self._path
+                )
         return {}
 
     def _save(self) -> None:
@@ -79,7 +81,9 @@ class ChannelStore:
 
     # -- public API --------------------------------------------------------
 
-    def get_thread_id(self, channel_name: str, chat_id: str, topic_id: str | None = None) -> str | None:
+    def get_thread_id(
+        self, channel_name: str, chat_id: str, topic_id: str | None = None
+    ) -> str | None:
         """Look up the DeerFlow thread_id for a given IM conversation/topic."""
         entry = self._data.get(self._key(channel_name, chat_id, topic_id))
         return entry["thread_id"] if entry else None
@@ -106,7 +110,9 @@ class ChannelStore:
             }
             self._save()
 
-    def remove(self, channel_name: str, chat_id: str, topic_id: str | None = None) -> bool:
+    def remove(
+        self, channel_name: str, chat_id: str, topic_id: str | None = None
+    ) -> bool:
         """Remove a mapping.
 
         If ``topic_id`` is provided, only that specific conversation/topic mapping is removed.
@@ -127,7 +133,12 @@ class ChannelStore:
 
             # Remove all mappings for this channel/chat_id (base and any topic-specific keys).
             prefix = self._key(channel_name, chat_id)
-            keys_to_delete = [k for k in self._data if k == prefix or k.startswith(prefix + ":")]
+            prefix_colon = prefix + ":"
+            keys_to_delete = [
+                k
+                for k in self._data.keys()
+                if k == prefix or k.startswith(prefix_colon)
+            ]
             if not keys_to_delete:
                 return False
 
