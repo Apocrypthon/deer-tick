@@ -20,13 +20,17 @@ def _get_cb():
     try:
         from coinbase.rest import RESTClient
     except ImportError:
-        raise RuntimeError("coinbase-advanced-py not installed. Run: uv add coinbase-advanced-py")
+        raise RuntimeError(
+            "coinbase-advanced-py not installed. Run: uv add coinbase-advanced-py"
+        )
 
     api_key = os.environ.get("COINBASE_API_KEY", "")
     api_secret = os.environ.get("COINBASE_API_SECRET", "").replace("\\n", "\n")
 
     if not api_key or not api_secret:
-        raise RuntimeError("COINBASE_API_KEY and COINBASE_API_SECRET must be set in .env")
+        raise RuntimeError(
+            "COINBASE_API_KEY and COINBASE_API_SECRET must be set in .env"
+        )
 
     _cb_client = RESTClient(api_key=api_key, api_secret=api_secret)
     logger.info("Coinbase Advanced Trade client initialized")
@@ -40,7 +44,23 @@ def _safe_float(val: Any, default: float = 0.0) -> float:
         return default
 
 
+def _get_crypto_usd_value(cb: Any, currency: str, balance: float) -> float:
+    try:
+        ticker = cb.get_best_bid_ask(product_ids=[f"{currency}-USD"])
+        if ticker and hasattr(ticker, "pricebooks") and ticker.pricebooks:
+            pb = ticker.pricebooks[0]
+            if pb.bids and pb.asks:
+                mid = (
+                    _safe_float(pb.bids[0].price) + _safe_float(pb.asks[0].price)
+                ) / 2
+                return balance * mid
+    except Exception:
+        pass
+    return 0.0
+
+
 # ── tools ─────────────────────────────────────────────────────────────────────
+
 
 class GetCryptoQuoteTool(BaseTool):
     name: str = "get_crypto_quote"
@@ -59,9 +79,7 @@ class GetCryptoQuoteTool(BaseTool):
                 bid = _safe_float(pb.bids[0].price if pb.bids else None)
                 ask = _safe_float(pb.asks[0].price if pb.asks else None)
                 mid = (bid + ask) / 2 if bid and ask else 0.0
-                return (
-                    f"{product_id}: bid=${bid:.2f} ask=${ask:.2f} mid=${mid:.2f}"
-                )
+                return f"{product_id}: bid=${bid:.2f} ask=${ask:.2f} mid=${mid:.2f}"
             product = cb.get_product(product_id)
             price = _safe_float(getattr(product, "price", None))
             return f"{product_id}: ${price:.2f}"
@@ -100,18 +118,8 @@ class GetCryptoPortfolioTool(BaseTool):
                         lines.append(f"• {currency}: ${balance:,.2f}")
                     else:
                         # Try to get USD value via quote
-                        usd_val = 0.0
-                        try:
-                            ticker = cb.get_best_bid_ask(product_ids=[f"{currency}-USD"])
-                            if ticker and hasattr(ticker, "pricebooks") and ticker.pricebooks:
-                                pb = ticker.pricebooks[0]
-                                mid = 0.0
-                                if pb.bids and pb.asks:
-                                    mid = (_safe_float(pb.bids[0].price) + _safe_float(pb.asks[0].price)) / 2
-                                usd_val = balance * mid
-                                total_usd += usd_val
-                        except Exception:
-                            pass
+                        usd_val = _get_crypto_usd_value(cb, currency, balance)
+                        total_usd += usd_val
                         if usd_val > 0:
                             crypto_lines.append(
                                 f"• {currency}: {balance:.6f}  (~${usd_val:,.2f} USD)"
@@ -145,6 +153,7 @@ class PlaceCryptoOrderTool(BaseTool):
             )
         cb = _get_cb()
         import uuid
+
         product_id = product_id.strip().upper()
         side = side.strip().upper()
         client_order_id = str(uuid.uuid4())
