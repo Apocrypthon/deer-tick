@@ -1,0 +1,7 @@
+.env
+*.db
+memory.json
+__pycache__/
+.venv/
+.deer-flow/
+backend/src/channels/__pycache__/
