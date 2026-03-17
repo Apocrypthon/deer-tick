@@ -3,12 +3,18 @@
 from __future__ import annotations
 
 import asyncio
+import io
 import logging
 import threading
 from typing import Any
 
 from src.channels.base import Channel
-from src.channels.message_bus import InboundMessageType, MessageBus, OutboundMessage, ResolvedAttachment
+from src.channels.message_bus import (
+    InboundMessageType,
+    MessageBus,
+    OutboundMessage,
+    ResolvedAttachment,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -74,7 +80,9 @@ class DiscordChannel(Channel):
 
         @client.event
         async def on_ready():
-            logger.info("Discord bot logged in as %s (id=%s)", client.user, client.user.id)
+            logger.info(
+                "Discord bot logged in as %s (id=%s)", client.user, client.user.id
+            )
 
         @client.event
         async def on_message(message):
@@ -99,7 +107,11 @@ class DiscordChannel(Channel):
                 topic_id = msg_id
 
             # slash-style commands
-            msg_type = InboundMessageType.COMMAND if text.startswith("/") else InboundMessageType.CHAT
+            msg_type = (
+                InboundMessageType.COMMAND
+                if text.startswith("/")
+                else InboundMessageType.CHAT
+            )
 
             inbound = self._make_inbound(
                 chat_id=chat_id,
@@ -120,7 +132,9 @@ class DiscordChannel(Channel):
                 )
 
         # ── run in daemon thread (mirrors TelegramChannel._run_polling) ──────
-        self._thread = threading.Thread(target=self._run_gateway, args=(bot_token,), daemon=True)
+        self._thread = threading.Thread(
+            target=self._run_gateway, args=(bot_token,), daemon=True
+        )
         self._thread.start()
         logger.info("Discord channel started")
 
@@ -151,27 +165,38 @@ class DiscordChannel(Channel):
                 return
 
         for chunk in _chunk_text(msg.text):
-            asyncio.run_coroutine_threadsafe(
-                channel.send(chunk), self._discord_loop
-            )
+            asyncio.run_coroutine_threadsafe(channel.send(chunk), self._discord_loop)
 
-    async def send_file(self, msg: OutboundMessage, attachment: ResolvedAttachment) -> bool:
+    async def send_file(
+        self, msg: OutboundMessage, attachment: ResolvedAttachment
+    ) -> bool:
         if not self._client or not self._discord_loop:
             return False
         # Discord file limit: 8MB on free servers
         if attachment.size > 8 * 1024 * 1024:
-            logger.warning("Discord: file too large (%d bytes), skipping %s", attachment.size, attachment.filename)
+            logger.warning(
+                "Discord: file too large (%d bytes), skipping %s",
+                attachment.size,
+                attachment.filename,
+            )
             return False
         try:
             import discord
+
             channel = self._client.get_channel(int(msg.chat_id))
             if channel is None:
                 return False
-            with open(attachment.actual_path, "rb") as f:
-                discord_file = discord.File(f, filename=attachment.filename)
-                asyncio.run_coroutine_threadsafe(
-                    channel.send(file=discord_file), self._discord_loop
-                )
+
+            def _read_file() -> bytes:
+                with open(attachment.actual_path, "rb") as f:
+                    return f.read()
+
+            data = await asyncio.to_thread(_read_file)
+            discord_file = discord.File(io.BytesIO(data), filename=attachment.filename)
+
+            asyncio.run_coroutine_threadsafe(
+                channel.send(file=discord_file), self._discord_loop
+            )
             return True
         except Exception:
             logger.exception("Discord: failed to send file %s", attachment.filename)
