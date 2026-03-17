@@ -1,5 +1,6 @@
 """Middleware for memory mechanism."""
 
+import copy
 import re
 from typing import Any, override
 
@@ -15,6 +16,13 @@ class MemoryMiddlewareState(AgentState):
     """Compatible with the `ThreadState` schema."""
 
     pass
+
+
+def _process_human_content(content: Any) -> str:
+    """Extract string content from a human message."""
+    if isinstance(content, list):
+        return " ".join(p.get("text", "") for p in content if isinstance(p, dict))
+    return str(content)
 
 
 def _filter_messages_for_memory(messages: list[Any]) -> list[Any]:
@@ -40,7 +48,9 @@ def _filter_messages_for_memory(messages: list[Any]) -> list[Any]:
     Returns:
         Filtered list containing only user inputs and final assistant responses.
     """
-    _UPLOAD_BLOCK_RE = re.compile(r"<uploaded_files>[\s\S]*?</uploaded_files>\n*", re.IGNORECASE)
+    _UPLOAD_BLOCK_RE = re.compile(
+        r"<uploaded_files>[\s\S]*?</uploaded_files>\n*", re.IGNORECASE
+    )
 
     filtered = []
     skip_next_ai = False
@@ -49,36 +59,46 @@ def _filter_messages_for_memory(messages: list[Any]) -> list[Any]:
 
         if msg_type == "human":
             content = getattr(msg, "content", "")
-            if isinstance(content, list):
-                content = " ".join(p.get("text", "") for p in content if isinstance(p, dict))
-            content_str = str(content)
-            if "<uploaded_files>" in content_str:
-                # Strip the ephemeral upload block; keep the user's real question.
-                stripped = _UPLOAD_BLOCK_RE.sub("", content_str).strip()
-                if not stripped:
-                    # Nothing left — the entire turn was upload bookkeeping;
-                    # skip it and the paired assistant response.
-                    skip_next_ai = True
-                    continue
-                # Rebuild the message with cleaned content so the user's question
-                # is still available for memory summarisation.
-                from copy import copy
+            content_str = _process_human_content(content)
 
-                clean_msg = copy(msg)
-                clean_msg.content = stripped
-                filtered.append(clean_msg)
+            if "<uploaded_files>" not in content_str:
+                # If content is a list, preserve compatibility with previous behavior
+                # by replacing the content with its string representation
+                if isinstance(content, list):
+                    clean_msg = copy.copy(msg)
+                    clean_msg.content = content_str
+                    filtered.append(clean_msg)
+                else:
+                    filtered.append(msg)
                 skip_next_ai = False
-            else:
-                filtered.append(msg)
-                skip_next_ai = False
+                continue
+
+            # Strip the ephemeral upload block; keep the user's real question.
+            stripped = _UPLOAD_BLOCK_RE.sub("", content_str).strip()
+            if not stripped:
+                # Nothing left — the entire turn was upload bookkeeping;
+                # skip it and the paired assistant response.
+                skip_next_ai = True
+                continue
+
+            # Rebuild the message with cleaned content so the user's question
+            # is still available for memory summarisation.
+            clean_msg = copy.copy(msg)
+            clean_msg.content = stripped
+            filtered.append(clean_msg)
+            skip_next_ai = False
+
         elif msg_type == "ai":
-            tool_calls = getattr(msg, "tool_calls", None)
-            if not tool_calls:
-                if skip_next_ai:
-                    skip_next_ai = False
-                    continue
-                filtered.append(msg)
-        # Skip tool messages and AI messages with tool_calls
+            if getattr(msg, "tool_calls", None):
+                continue
+
+            if skip_next_ai:
+                skip_next_ai = False
+                continue
+
+            filtered.append(msg)
+
+        # Skip tool messages
 
     return filtered
 
@@ -105,7 +125,9 @@ class MemoryMiddleware(AgentMiddleware[MemoryMiddlewareState]):
         self._agent_name = agent_name
 
     @override
-    def after_agent(self, state: MemoryMiddlewareState, runtime: Runtime) -> dict | None:
+    def after_agent(
+        self, state: MemoryMiddlewareState, runtime: Runtime
+    ) -> dict | None:
         """Queue conversation for memory update after agent completes.
 
         Args:
@@ -136,14 +158,20 @@ class MemoryMiddleware(AgentMiddleware[MemoryMiddlewareState]):
 
         # Only queue if there's meaningful conversation
         # At minimum need one user message and one assistant response
-        user_messages = [m for m in filtered_messages if getattr(m, "type", None) == "human"]
-        assistant_messages = [m for m in filtered_messages if getattr(m, "type", None) == "ai"]
+        user_messages = [
+            m for m in filtered_messages if getattr(m, "type", None) == "human"
+        ]
+        assistant_messages = [
+            m for m in filtered_messages if getattr(m, "type", None) == "ai"
+        ]
 
         if not user_messages or not assistant_messages:
             return None
 
         # Queue the filtered conversation for memory update
         queue = get_memory_queue()
-        queue.add(thread_id=thread_id, messages=filtered_messages, agent_name=self._agent_name)
+        queue.add(
+            thread_id=thread_id, messages=filtered_messages, agent_name=self._agent_name
+        )
 
         return None
