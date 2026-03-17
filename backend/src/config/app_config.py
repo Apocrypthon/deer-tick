@@ -32,6 +32,10 @@ class AppConfig(BaseModel):
     model_config = ConfigDict(extra="allow", frozen=False)
     checkpointer: CheckpointerConfig | None = Field(default=None, description="Checkpointer configuration")
 
+    _models_by_name: dict[str, ModelConfig] | None = None
+    _tools_by_name: dict[str, ToolConfig] | None = None
+    _tool_groups_by_name: dict[str, ToolGroupConfig] | None = None
+
     @classmethod
     def resolve_config_path(cls, config_path: str | None = None) -> Path:
         """Resolve the config file path.
@@ -139,7 +143,9 @@ class AppConfig(BaseModel):
         Returns:
             The model config if found, otherwise None.
         """
-        return next((model for model in self.models if model.name == name), None)
+        if self._models_by_name is None:
+            self._models_by_name = {model.name: model for model in self.models}
+        return self._models_by_name.get(name)
 
     def get_tool_config(self, name: str) -> ToolConfig | None:
         """Get the tool config by name.
@@ -150,7 +156,9 @@ class AppConfig(BaseModel):
         Returns:
             The tool config if found, otherwise None.
         """
-        return next((tool for tool in self.tools if tool.name == name), None)
+        if self._tools_by_name is None:
+            self._tools_by_name = {tool.name: tool for tool in self.tools}
+        return self._tools_by_name.get(name)
 
     def get_tool_group_config(self, name: str) -> ToolGroupConfig | None:
         """Get the tool group config by name.
@@ -161,7 +169,9 @@ class AppConfig(BaseModel):
         Returns:
             The tool group config if found, otherwise None.
         """
-        return next((group for group in self.tool_groups if group.name == name), None)
+        if self._tool_groups_by_name is None:
+            self._tool_groups_by_name = {group.name: group for group in self.tool_groups}
+        return self._tool_groups_by_name.get(name)
 
 
 _app_config: AppConfig | None = None
