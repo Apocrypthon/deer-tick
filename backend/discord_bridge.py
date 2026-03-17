@@ -115,7 +115,7 @@ async def main() -> None:
             tunnel = _ngrok.connect(
                 addr=8080,
                 proto="http",
-                domain="rene-aristolochiaceous-ayanna.ngrok-free.dev",
+                domain=os.environ.get("NGROK_DOMAIN", ""),
             )
             public_url = tunnel.public_url
             logger.info("ngrok tunnel: %s", public_url)

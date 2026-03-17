@@ -25,6 +25,7 @@ import os
 import time
 from dataclasses import dataclass, field
 from typing import Any, Optional
+from src.scheduler.quant_memory import QuantMemory, MarketSignal, get_qmem
 
 logger = logging.getLogger(__name__)
 
@@ -323,6 +324,11 @@ class AlertScheduler:
             for sym, side, price in opp.legs
         )
         age = round(now - opp.detected_at, 1)
+
+        try:
+            qmem_ctx = get_qmem().summary(3)
+        except Exception:
+            qmem_ctx = "QMem unavailable"
 
         prompt = _ARB_PROMPT.format(
             name=opp.name,
