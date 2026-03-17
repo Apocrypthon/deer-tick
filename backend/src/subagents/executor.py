@@ -11,6 +11,8 @@ from datetime import datetime
 from enum import Enum
 from typing import Any
 
+MAX_CONCURRENT_SUBAGENTS = 3
+
 from langchain.agents import create_agent
 from langchain.tools import BaseTool
 from langchain_core.messages import AIMessage, HumanMessage
