@@ -385,13 +385,20 @@ class AlertScheduler:
                 for item in (watchlist or [])
             ]
             symbols = [s for s in symbols if s and s.isupper() and s.isalpha() and 1 <= len(s) <= 6]
-            for symbol in symbols:
-                raw = await loop.run_in_executor(
-                    None, lambda s=symbol: rh.stocks.get_latest_price(s)
+            if symbols:
+                quotes = await loop.run_in_executor(
+                    None, lambda: rh.stocks.get_quotes(symbols)
                 )
-                price = float(raw[0]) if raw and raw[0] else 0.0
-                if price > 0:
-                    self._state.price_baselines[symbol] = price
+                for quote in (quotes or []):
+                    if not quote:
+                        continue
+                    symbol = quote.get("symbol")
+                    # Prioritize extended hours price to match original get_latest_price behavior
+                    raw_price = quote.get("last_extended_hours_trade_price") or quote.get("last_trade_price")
+                    if symbol and raw_price:
+                        price = float(raw_price)
+                        if price > 0:
+                            self._state.price_baselines[symbol] = price
             logger.info("Price baselines seeded: %s", self._state.price_baselines)
         except Exception:
             logger.exception("Failed to seed price baselines")
@@ -438,15 +445,32 @@ class AlertScheduler:
         loop = asyncio.get_event_loop()
         try:
             rh = self._get_rh()
-            for symbol, baseline in list(self._state.price_baselines.items()):
-                if baseline == 0.0:
+            # Snapshot to avoid "dictionary changed size during iteration"
+            baselines = list(self._state.price_baselines.items())
+            symbols = [s for s, b in baselines if b > 0.0]
+            if not symbols:
+                return
+
+            # get_quotes is safer than get_latest_price for batching as it returns symbol info
+            quotes = await loop.run_in_executor(
+                None, lambda: rh.stocks.get_quotes(symbols)
+            )
+
+            for quote in (quotes or []):
+                if not quote:
                     continue
-                raw = await loop.run_in_executor(
-                    None, lambda s=symbol: rh.stocks.get_latest_price(s)
-                )
-                price = float(raw[0]) if raw and raw[0] else 0.0
+                symbol = quote.get("symbol")
+                # Prioritize extended hours price to match original get_latest_price behavior
+                raw_price = quote.get("last_extended_hours_trade_price") or quote.get("last_trade_price")
+
+                baseline = self._state.price_baselines.get(symbol)
+                if not baseline or not raw_price:
+                    continue
+
+                price = float(raw_price)
                 if price == 0.0:
                     continue
+
                 pct_move = ((price - baseline) / baseline) * 100
                 now = time.time()
                 last_alerted = self._state.price_alerted.get(symbol, 0.0)
